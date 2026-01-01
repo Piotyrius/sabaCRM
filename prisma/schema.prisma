@@ -1,0 +1,341 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Core Structure Tables
+model Office {
+  id          String       @id @default(cuid())
+  name        String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  departments Department[]
+  users       User[]
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  officeId    String
+  office      Office   @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  desks       Desk[]
+  users       User[]
+}
+
+model Desk {
+  id           String       @id @default(cuid())
+  name         String
+  departmentId String
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  users        User[]
+  salesClients Client[]     @relation("SalesDesk")
+  retentionClients Client[] @relation("RetentionDesk")
+}
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  password      String
+  role          String       @default("EXECUTIVE") // ADMIN, EXECUTIVE, TEAM_LEADER, MANAGER
+  officeId      String?
+  office        Office?      @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  departmentId  String?
+  department    Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  deskId        String?
+  desk          Desk?        @relation(fields: [deskId], references: [id], onDelete: SetNull)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  emailVerified DateTime?
+  image         String?
+  
+  // Relations
+  salesClients       Client[]         @relation("SalesRep")
+  retentionClients    Client[]         @relation("RetentionRep")
+  createdClients     Client[]         @relation("CreatedBy")
+  activityLogs       ActivityLog[]
+  notifications      Notification[]
+  tasks              Task[]
+  createdTasks       Task[]            @relation("TaskCreator")
+  reports            Report[]
+  apiKeys            ApiKey[]
+  emailLogs          EmailLog[]
+  statusHistoryChanges ClientStatusHistory[]
+}
+
+// Client Management Tables
+model Client {
+  id                String       @id @default(cuid())
+  registrationDate  DateTime     @default(now())
+  clientId          String?      @unique // External ID
+  name              String
+  country           String?
+  email             String?
+  phone             String?
+  affiliate         String?
+  affiliateSource   String?
+  salesStatus       String       @default("INITIAL_CALL") // NO_ANSWER, NEVER_ANSWER, etc.
+  salesDeskId       String?
+  salesDesk         Desk?        @relation("SalesDesk", fields: [salesDeskId], references: [id], onDelete: SetNull)
+  salesRepId        String?
+  salesRep          User?        @relation("SalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
+  retentionDeskId   String?
+  retentionDesk     Desk?        @relation("RetentionDesk", fields: [retentionDeskId], references: [id], onDelete: SetNull)
+  retentionRepId    String?
+  retentionRep      User?        @relation("RetentionRep", fields: [retentionRepId], references: [id], onDelete: SetNull)
+  ftdDate           DateTime?
+  balance           Float        @default(0)
+  note              String?
+  createdById       String?
+  createdBy         User?        @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  
+  // Relations
+  notes              ClientNote[]
+  statusHistory      ClientStatusHistory[]
+  communications     ClientCommunication[]
+  duplicates         ClientDuplicate[]      @relation("PrimaryClient")
+  duplicateOf        ClientDuplicate[]      @relation("DuplicateClient")
+  tasks              Task[]
+  activityLogs       ActivityLog[]
+}
+
+model ClientNote {
+  id        String   @id @default(cuid())
+  clientId String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ClientStatusHistory {
+  id          String      @id @default(cuid())
+  clientId    String
+  client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  oldStatus   String?
+  newStatus   String
+  changedById String?
+  changedBy   User?       @relation(fields: [changedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+}
+
+model ClientCommunication {
+  id          String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type       String   // CALL, EMAIL, NOTE, etc.
+  direction  String?  // INBOUND, OUTBOUND
+  subject    String?
+  content    String?
+  metadata   String?  // JSON string
+  createdAt  DateTime  @default(now())
+}
+
+model ClientDuplicate {
+  id              String   @id @default(cuid())
+  primaryClientId String
+  primaryClient   Client   @relation("PrimaryClient", fields: [primaryClientId], references: [id], onDelete: Cascade)
+  duplicateClientId String
+  duplicateClient Client   @relation("DuplicateClient", fields: [duplicateClientId], references: [id], onDelete: Cascade)
+  confidence      Float    // 0-1 confidence score
+  detectedAt      DateTime @default(now())
+  resolved        Boolean  @default(false)
+  resolvedAt      DateTime?
+}
+
+// Activity & Audit Tables
+model ActivityLog {
+  id          String       @id @default(cuid())
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  clientId    String?
+  client      Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type        String       // CREATE, UPDATE, DELETE, etc.
+  entityType  String       // CLIENT, USER, TASK, etc.
+  entityId    String?
+  action      String       // Description of action
+  changes     String?      // JSON string
+  metadata    String?      // JSON string
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime     @default(now())
+  
+  @@index([userId])
+  @@index([clientId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // ASSIGNMENT, STATUS_CHANGE, TASK_REMINDER, etc.
+  title       String
+  message     String
+  read        Boolean  @default(false)
+  readAt      DateTime?
+  link        String?  // URL to related resource
+  metadata    String?  // JSON string
+  createdAt   DateTime @default(now())
+  
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  clientId    String?
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  assignedToId String
+  assignedTo User      @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  status      String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  priority    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  reminders   TaskReminder[]
+  
+  @@index([assignedToId])
+  @@index([clientId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model TaskReminder {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  remindAt  DateTime
+  sent      Boolean  @default(false)
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+  
+  @@index([remindAt, sent])
+}
+
+// Reporting & Analytics Tables
+model Report {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // CUSTOM, TEMPLATE
+  config      String   // JSON string
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  schedules   ReportSchedule[]
+}
+
+model ReportSchedule {
+  id          String   @id @default(cuid())
+  reportId    String
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  frequency   String   // DAILY, WEEKLY, MONTHLY
+  dayOfWeek   Int?     // 0-6 for weekly
+  dayOfMonth  Int?     // 1-31 for monthly
+  time        String   // HH:MM format
+  enabled     Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([nextRunAt, enabled])
+}
+
+// Email Integration Tables
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  subject     String
+  body        String
+  variables   String?  // JSON string
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  emailLogs   EmailLog[]
+}
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  to          String
+  cc          String?
+  bcc         String?
+  subject     String
+  body        String
+  templateId  String?
+  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  sent        Boolean  @default(false)
+  sentAt      DateTime?
+  opened      Boolean  @default(false)
+  openedAt    DateTime?
+  clicked     Boolean  @default(false)
+  clickedAt   DateTime?
+  error       String?
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([sentAt])
+}
+
+// API Access Tables
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  key         String   @unique
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  logs        ApiLog[]
+  
+  @@index([key])
+  @@index([userId])
+}
+
+model ApiLog {
+  id          String   @id @default(cuid())
+  apiKeyId    String?
+  apiKey      ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  endpoint    String
+  method      String
+  statusCode  Int
+  responseTime Int?    // milliseconds
+  ipAddress   String?
+  userAgent   String?
+  requestBody String?  // JSON string
+  responseBody String? // JSON string
+  error       String?
+  createdAt   DateTime @default(now())
+  
+  @@index([apiKeyId])
+  @@index([createdAt])
+  @@index([endpoint])
+}
